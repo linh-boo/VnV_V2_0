@@ -45,7 +45,7 @@ bool isUpdateScucessful = false;
 
 // E-load shunt rating: 50 A at 75 mV => 1.5 mOhm.
 constexpr float ELOAD_SHUNT_OHMS = 0.075f / 50.0f;
-constexpr float ELOAD_DAC_TO_SHUNT = 0.17544f;
+constexpr float ELOAD_DAC_TO_SHUNT = 0.02083f;
 constexpr uint32_t ELOAD_MAX_MA = 50000;
 
 
