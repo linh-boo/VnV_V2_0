@@ -43,10 +43,12 @@ uint16_t dacValues[8] = {0};// gia tri M1-M8 da ghi thanh cong -- cho lenh S:? d
 uint8_t x9c_values[4] = {0};
 bool isUpdateScucessful = false;
 
-// E-load shunt rating: 50 A at 75 mV => 1.5 mOhm.
-constexpr float ELOAD_SHUNT_OHMS = 0.075f / 50.0f;
-constexpr float ELOAD_DAC_TO_SHUNT = 0.02083f;
-constexpr uint32_t ELOAD_MAX_MA = 50000;
+// E-load calibration from measured current vs ESP32 8-bit DAC code.
+// The measured ~0.091 A intercept is background current, so it is intentionally
+// excluded from E-load control. Controlled E-load current is:
+//   I_ELOAD(A) = ELOAD_CURRENT_A_PER_DAC_CODE * DAC_CODE
+constexpr float ELOAD_CURRENT_A_PER_DAC_CODE = 0.01646427f;
+constexpr uint32_t ELOAD_MAX_MA = 4198; // floor(255 * gain * 1000)
 
 
 bool setMCPValue(String command);
@@ -236,7 +238,7 @@ bool setELoadValue(String command) {
     const float dacVoltage =
         (static_cast<float>(eloadDacCode) * 3.3f) / 255.0f;
     const float setCurrent =
-        (ELOAD_DAC_TO_SHUNT * dacVoltage) / ELOAD_SHUNT_OHMS;
+        static_cast<float>(eloadDacCode) * ELOAD_CURRENT_A_PER_DAC_CODE;
 
     Serial.printf("ELOAD DAC=%u VDAC=%.3fV ISET=%.3fA VIN=%.3fV "
                   "ADC_VIN=%u ADC_IOUT=%u\n",
@@ -252,28 +254,30 @@ bool setELoadValue(String command) {
 
   const String currentText = command.substring(2);
   if (currentText.length() == 0) {
-    Serial.println("Invalid current. Use 0 to 50000 mA.");
+    Serial.println("Invalid current. Use 0 to 4198 mA.");
     return false;
   }
   for (size_t i = 0; i < currentText.length(); ++i) {
     if (currentText.charAt(i) < '0' || currentText.charAt(i) > '9') {
-      Serial.println("Invalid current. Use 0 to 50000 mA.");
+      Serial.println("Invalid current. Use 0 to 4198 mA.");
       return false;
     }
   }
 
   const long currentMilliamp = currentText.toInt();
   if (currentMilliamp > static_cast<long>(ELOAD_MAX_MA)) {
-    Serial.println("Invalid current. Shunt limit is 50000 mA.");
+    Serial.printf("Invalid current. Calibrated E-load limit is %lu mA.\n",
+                  static_cast<unsigned long>(ELOAD_MAX_MA));
     return false;
   }
 
-  // VSHUNT = 0.17544 * VDAC and I = VSHUNT / 0.0015 ohm.
-  const float dacVoltage = (static_cast<float>(currentMilliamp) / 1000.0f) *
-                           ELOAD_SHUNT_OHMS / ELOAD_DAC_TO_SHUNT;
-  const long dacCode = lroundf((dacVoltage / 3.3f) * 255.0f);
+  // Background current (~0.091 A) is intentionally not compensated here.
+  // The E command controls only the DAC-generated load current.
+  const float targetCurrentA = static_cast<float>(currentMilliamp) / 1000.0f;
+  const long dacCode =
+      lroundf(targetCurrentA / ELOAD_CURRENT_A_PER_DAC_CODE);
   if (dacCode < 0 || dacCode > 255) {
-    Serial.println("Current exceeds the DAC range.");
+    Serial.println("Current exceeds the calibrated DAC range.");
     return false;
   }
 
